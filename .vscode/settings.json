@@ -1,0 +1,16 @@
+{
+  // ファイルを保存したときに自動でフォーマットをかける
+  "editor.formatOnSave": true,
+  // デフォルトのフォーマッターをPrettierに設定
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  // Pythonファイルの場合の設定
+  "[python]": {
+    // Python用のフォーマッターをBlackに設定
+    "editor.defaultFormatter": "ms-python.black-formatter"
+  },
+  // ファイル保存時にコードを自動整形/修正する
+  "editor.codeActionsOnSave": {
+    // ruffによる自動修正を有効にする
+    "source.fixAll": "explicit"
+  }
+}

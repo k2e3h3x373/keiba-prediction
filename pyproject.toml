@@ -1,0 +1,16 @@
+[tool.black]
+line-length = 88
+target-version = ['py312']
+
+[tool.ruff]
+# blackと同じく、1行の最大文字数を88に設定
+line-length = 88
+# Python3.12を対象にする
+target-version = "py312"
+
+[tool.ruff.lint]
+# 最低限の必須ルール(F)と、Pyflakes(F)というエラーチェックライブラリのルールを有効にする
+# E, Wは規約に関するルールで、今回はオフにしてblackに任せる部分を多くする
+select = ["F", "E", "W"]
+# 使っていないimport文の自動削除など、修正可能なものは自動で修正する
+fixable = ["ALL"]
