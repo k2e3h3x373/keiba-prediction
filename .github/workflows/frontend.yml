@@ -1,0 +1,51 @@
+# ワークフローの名前
+name: Frontend CI
+
+# ワークフローが実行されるタイミングを指定
+on:
+  # mainブランチにpushされたとき
+  push:
+    branches: ["main"]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/frontend.yml"
+
+  # mainブランチに対するpull requestが作成/更新されたとき
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/frontend.yml"
+
+# 実行されるジョブを定義
+jobs:
+  # lint-and-format-checkという名前のジョブ
+  lint-and-format-check:
+    # ジョブが実行される環境を指定（最新のUbuntu）
+    runs-on: ubuntu-latest
+    # デフォルトの作業ディレクトリをfrontendに設定
+    defaults:
+      run:
+        working-directory: ./frontend
+    # ジョブのステップを定義
+    steps:
+      # 1. リポジトリのコードをチェックアウトする
+      - uses: actions/checkout@v4
+
+      # 2. Node.js 20.x をセットアップする
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+
+      # 3. 依存関係をインストールする (npm ci は package-lock.json に基づいて高速にインストールするコマンド)
+      - name: Install dependencies
+        run: npm ci
+
+      # 4. ESLintでリンターチェックを実行する
+      - name: Lint with ESLint
+        run: npm run lint
+
+      # 5. Prettierでフォーマットチェックを実行する
+      - name: Format check with Prettier
+        run: npm run format:check
