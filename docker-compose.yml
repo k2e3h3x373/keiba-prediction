@@ -1,0 +1,26 @@
+# Docker Compose のファイルバージョン
+version: "3.8"
+
+# 起動するコンテナ（サービス）を定義
+services:
+  # 'db' という名前のサービスを定義
+  db:
+    # 'postgres' の公式Dockerイメージを使用（バージョン16）
+    image: postgres:16
+    # コンテナがクラッシュした場合などに自動で再起動する
+    restart: always
+    # コンテナ内で使用する環境変数を設定
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: keiba_db
+    # ポートのマッピング（ホストPCの5432番ポートをコンテナの5432番ポートに接続）
+    ports:
+      - "5432:5432"
+    # データの永続化設定
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+# Dockerに管理させるデータボリュームを定義
+volumes:
+  postgres_data:
