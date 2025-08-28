@@ -1,9 +1,23 @@
 from flask import Flask, jsonify
+from flask_sqlalchemy import SQLAlchemy
+from flask_migrate import Migrate
 
 # Flaskアプリケーションのインスタンスを作成
 app = Flask(__name__)
 # 日本語がJSONで文字化けしないように設定
 app.config["JSON_AS_ASCII"] = False
+
+# データベース接続設定
+# postgresql://<ユーザー名>:<パスワード>@<ホスト>:<ポート>/<データベース名>
+app.config["SQLALCHEMY_DATABASE_URI"] = (
+    "postgresql://user:password@localhost:5432/keiba_db"
+)
+# SQLAlchemyがデータベースの変更を追跡する機能を無効にする（パフォーマンス向上のため）
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+# SQLAlchemy と Migrate をFlaskアプリケーションに登録
+db = SQLAlchemy(app)
+migrate = Migrate(app, db)
 
 
 # http://127.0.0.1:5000/api/hello というURLにアクセスがあったときに実行される関数
