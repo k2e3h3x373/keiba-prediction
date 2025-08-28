@@ -20,6 +20,23 @@ db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 
 
+# データベースのテーブルを定義するクラス（モデル）
+class Race(db.Model):
+    # テーブル名
+    __tablename__ = "races"
+
+    # カラムの定義
+    id = db.Column(db.Integer, primary_key=True)  # 主キー
+    name = db.Column(
+        db.String(100), nullable=False
+    )  # レース名（100文字まで、NULL不可）
+    venue = db.Column(db.String(100), nullable=False)  # 開催地（100文字まで、NULL不可）
+    date = db.Column(db.Date, nullable=False)  # 開催日（日付型、NULL不可）
+
+    def __repr__(self):
+        return f"<Race {self.name}>"
+
+
 # http://127.0.0.1:5000/api/hello というURLにアクセスがあったときに実行される関数
 @app.route("/api/hello")
 def hello_world():
