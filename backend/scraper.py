@@ -4,6 +4,47 @@ import pandas as pd
 from io import StringIO
 
 
+def clean_data(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    スクレイピングで取得したDataFrameを整形する関数
+    """
+    # 必要のない列を削除
+    df = df.drop(["着差", "調教師", "タイム"], axis=1)
+
+    # 列名をリネーム
+    df = df.rename(
+        columns={
+            "着 順": "rank",
+            "枠 番": "waku",
+            "馬 番": "umaban",
+            "馬名": "horse_name",
+            "性齢": "sex_age",
+            "斤量": "jockey_weight",
+            "騎手": "jockey_name",
+            "単勝": "single_price",
+            "人 気": "popular",
+            "馬体重": "horse_weight",
+        }
+    )
+
+    # 'rank' 列が数値でない行を削除 (例: '除外', '中止' など)
+    df = df[pd.to_numeric(df["rank"], errors="coerce").notna()]
+
+    # データ型を変換
+    df["rank"] = df["rank"].astype(int)
+    df["waku"] = df["waku"].astype(int)
+    df["umaban"] = df["umaban"].astype(int)
+    df["jockey_weight"] = df["jockey_weight"].astype(float)
+    df["single_price"] = df["single_price"].astype(float)
+    df["popular"] = df["popular"].astype(int)
+
+    # 'horse_weight' から体重のみを抽出し、数値に変換
+    # 例: '498(+4)' -> 498
+    df["horse_weight"] = df["horse_weight"].str.split("(", expand=True)[0].astype(int)
+
+    return df
+
+
 def main():
     """
     Webスクレイピング処理のメイン関数
@@ -35,6 +76,15 @@ def main():
 
         print("レース結果テーブルを取得しました:")
         print(df)
+        print("-" * 30)
+
+        # 6. データを整形する
+        cleaned_df = clean_data(df)
+        print("整形後のデータ:")
+        print(cleaned_df)
+        print("-" * 30)
+        print("各列のデータ型:")
+        print(cleaned_df.info())
 
     except requests.exceptions.RequestException as e:
         print(f"URLの取得中にエラーが発生しました: {e}")
