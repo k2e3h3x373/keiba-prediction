@@ -4,6 +4,35 @@ import pandas as pd
 from io import StringIO
 import time
 from tqdm import tqdm
+import re
+
+
+def get_all_race_ids_in_year(year: int) -> list[str]:
+    """
+    指定された年のすべてのレースIDを生成ロジックに基づいて取得する関数
+    """
+    all_race_ids = []
+    print(f"{year}年の全レースIDを探索します...")
+
+    # 競馬場ID (01: 札幌, 02: 函館, ..., 10: 東京)
+    for place_id in tqdm(range(1, 11), desc="競馬場"):
+        # 開催回 (通常1〜5回)
+        for kaisai_kai in range(1, 7):
+            # 開催日 (通常1〜12日)
+            for kaisai_nichi in range(1, 13):
+                # レース番号 (1〜12レース)
+                for race_num in range(1, 13):
+                    race_id = (
+                        f"{year}"
+                        f"{str(place_id).zfill(2)}"
+                        f"{str(kaisai_kai).zfill(2)}"
+                        f"{str(kaisai_nichi).zfill(2)}"
+                        f"{str(race_num).zfill(2)}"
+                    )
+                    all_race_ids.append(race_id)
+
+    print(f"合計 {len(all_race_ids)} 件のレースIDを生成しました。")
+    return all_race_ids
 
 
 def scrape_race_result(race_id: str) -> pd.DataFrame:
@@ -77,16 +106,15 @@ def main():
     """
     Webスクレイピング処理のメイン関数
     """
-    # 2023年のG1レースのサンプルIDリスト
-    race_ids = [
-        "202305050812",  # ジャパンカップ
-        "202306050811",  # 有馬記念
-        "202309030811",  # 宝塚記念
-    ]
+    # 2023年の全レースIDを取得
+    race_ids = get_all_race_ids_in_year(2023)
+
+    # (デバッグ用) 少数のIDで試す場合は、以下のようにスライスする
+    # race_ids = race_ids[:10]
 
     all_results = []
 
-    print("レース結果のスクレイピングを開始します...")
+    print(f"合計 {len(race_ids)} 件のレース結果をスクレイピングします...")
     # tqdmを使ってプログレスバーを表示
     for race_id in tqdm(race_ids):
         result_df = scrape_race_result(race_id)
