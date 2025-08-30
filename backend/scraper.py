@@ -2,6 +2,34 @@ import requests
 from bs4 import BeautifulSoup
 import pandas as pd
 from io import StringIO
+import time
+from tqdm import tqdm
+
+
+def scrape_race_result(race_id: str) -> pd.DataFrame:
+    """
+    指定されたレースIDの結果ページをスクレイピングし、整形されたDataFrameを返す関数
+    """
+    url = f"https://db.netkeiba.com/race/{race_id}/"
+    try:
+        response = requests.get(url)
+        response.encoding = response.apparent_encoding
+        soup = BeautifulSoup(response.text, "html.parser")
+
+        race_table = soup.find("table", class_="race_table_01")
+        df = pd.read_html(StringIO(str(race_table)))[0]
+
+        cleaned_df = clean_data(df)
+        return cleaned_df
+
+    except IndexError:
+        print(
+            f"エラー: レースID {race_id} のテーブルが見つかりませんでした。スキップします。"
+        )
+        return pd.DataFrame()  # 空のDataFrameを返す
+    except Exception as e:
+        print(f"エラー: レースID {race_id} の処理中に予期せぬエラーが発生しました: {e}")
+        return pd.DataFrame()  # 空のDataFrameを返す
 
 
 def clean_data(df: pd.DataFrame) -> pd.DataFrame:
@@ -49,49 +77,36 @@ def main():
     """
     Webスクレイピング処理のメイン関数
     """
-    # サンプルとして、特定のレース結果ページのURLを指定 (2023年ジャパンカップ)
-    target_url = "https://db.netkeiba.com/race/202305050812/"
+    # 2023年のG1レースのサンプルIDリスト
+    race_ids = [
+        "202305050812",  # ジャパンカップ
+        "202306050811",  # 有馬記念
+        "202309030811",  # 宝塚記念
+    ]
 
-    try:
-        # 1. requestsでURLにアクセスし、HTMLを取得
-        response = requests.get(target_url)
-        response.encoding = response.apparent_encoding  # 文字化け防止
+    all_results = []
 
-        # 2. BeautifulSoupでHTMLを解析
-        soup = BeautifulSoup(response.text, "html.parser")
+    print("レース結果のスクレイピングを開始します...")
+    # tqdmを使ってプログレスバーを表示
+    for race_id in tqdm(race_ids):
+        result_df = scrape_race_result(race_id)
+        # 取得したデータにレースIDを列として追加
+        if not result_df.empty:
+            result_df["race_id"] = race_id
+            all_results.append(result_df)
 
-        # 3. ページのタイトルを取得して表示 (動作確認)
-        page_title = soup.title.string
-        print("ページのタイトルを取得しました:")
-        print(page_title)
-        print("-" * 30)  # 区切り線
+        # サーバーに負荷をかけないための待機
+        time.sleep(1)
 
-        # 4. レース結果のテーブルを抽出
-        # classが'RaceTable01'であるtable要素を検索
-        race_table = soup.find("table", class_="race_table_01")
-
-        # 5. pandasのread_htmlを使って、テーブルをDataFrameに変換
-        # read_htmlはリストを返すので、最初の要素を取得
-        df = pd.read_html(StringIO(str(race_table)))[0]
-
-        print("レース結果テーブルを取得しました:")
-        print(df)
-        print("-" * 30)
-
-        # 6. データを整形する
-        cleaned_df = clean_data(df)
-        print("整形後のデータ:")
-        print(cleaned_df)
-        print("-" * 30)
-        print("各列のデータ型:")
-        print(cleaned_df.info())
-
-    except requests.exceptions.RequestException as e:
-        print(f"URLの取得中にエラーが発生しました: {e}")
-    except IndexError as e:
-        print(
-            f"テーブルが見つかりませんでした。HTMLの構造が変更された可能性があります。"
-        )
+    # 全てのレース結果を一つのDataFrameに結合
+    if all_results:
+        final_df = pd.concat(all_results, ignore_index=True)
+        print("スクレイピングが完了しました。")
+        print("取得したデータの一部:")
+        print(final_df.head())
+        print("\n全体の件数:", len(final_df))
+    else:
+        print("有効なデータは一件も取得できませんでした。")
 
 
 # このファイルが直接実行された場合に、main()関数を呼び出す
