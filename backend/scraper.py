@@ -1,5 +1,7 @@
 import requests
 from bs4 import BeautifulSoup
+import pandas as pd
+from io import StringIO
 
 
 def main():
@@ -21,9 +23,25 @@ def main():
         page_title = soup.title.string
         print("ページのタイトルを取得しました:")
         print(page_title)
+        print("-" * 30)  # 区切り線
+
+        # 4. レース結果のテーブルを抽出
+        # classが'RaceTable01'であるtable要素を検索
+        race_table = soup.find("table", class_="race_table_01")
+
+        # 5. pandasのread_htmlを使って、テーブルをDataFrameに変換
+        # read_htmlはリストを返すので、最初の要素を取得
+        df = pd.read_html(StringIO(str(race_table)))[0]
+
+        print("レース結果テーブルを取得しました:")
+        print(df)
 
     except requests.exceptions.RequestException as e:
         print(f"URLの取得中にエラーが発生しました: {e}")
+    except IndexError as e:
+        print(
+            f"テーブルが見つかりませんでした。HTMLの構造が変更された可能性があります。"
+        )
 
 
 # このファイルが直接実行された場合に、main()関数を呼び出す
