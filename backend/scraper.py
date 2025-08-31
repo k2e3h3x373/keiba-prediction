@@ -7,6 +7,10 @@ from tqdm import tqdm
 from datetime import datetime
 import re
 
+# Flaskアプリケーションのコンテキストをインポート
+from app import app, db, Race, Result, Horse, Jockey
+
+
 # 競馬場IDと競馬場名の対応表
 PLACE_MAP = {
     "01": "札幌",
@@ -146,17 +150,110 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def save_results_to_db(races_data: list[dict], results_df: pd.DataFrame):
+    """
+    スクレイピングしたレース情報と結果データをデータベースに保存する関数
+    """
+    # Flaskのアプリケーションコンテキスト内で実行
+    with app.app_context():
+        # --- 1. レース情報を保存 ---
+        saved_races = 0
+        for race_info in races_data:
+            # 既に同じIDのレースが存在しないか確認
+            exists = db.session.get(Race, race_info["id"])
+            if not exists:
+                race = Race(**race_info)
+                db.session.add(race)
+                saved_races += 1
+
+        if saved_races > 0:
+            print(f"{saved_races}件の新しいレース情報を追加しました。")
+
+        # --- 2. 馬と騎手の情報を先にまとめて登録 ---
+        # 効率化のため、先にDBに存在する馬・騎手をすべて取得
+        existing_horses = {h.name for h in Horse.query.all()}
+        existing_jockeys = {j.name for j in Jockey.query.all()}
+
+        # スクレイピング結果からユニークな馬名・騎手名を取得
+        unique_horses = set(results_df["horse_name"].unique())
+        unique_jockeys = set(results_df["jockey_name"].unique())
+
+        # DBに存在しない新しい馬・騎手だけをセッションに追加
+        new_horses = unique_horses - existing_horses
+        new_jockeys = unique_jockeys - existing_jockeys
+
+        for name in new_horses:
+            db.session.add(Horse(name=name))
+        for name in new_jockeys:
+            db.session.add(Jockey(name=name))
+
+        if new_horses or new_jockeys:
+            print(
+                f"新しい馬 {len(new_horses)}頭、新しい騎手 {len(new_jockeys)}名を登録します。"
+            )
+
+        # --- 3. レース結果を保存 ---
+        # 一度コミットして、新しい馬・騎手のIDを確定させる
+        try:
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            print(f"レース・馬・騎手の保存中にエラーが発生: {e}")
+            return
+
+        # IDを効率的に引けるように、馬名/騎手名をキーにした辞書を作成
+        horse_map = {h.name: h.id for h in Horse.query.all()}
+        jockey_map = {j.name: j.id for j in Jockey.query.all()}
+
+        saved_results = 0
+        for _, row in tqdm(
+            results_df.iterrows(), total=len(results_df), desc="レース結果をDBに保存中"
+        ):
+            # 既に同じレースの同じ馬番の結果が存在しないか確認
+            exists = Result.query.filter_by(
+                race_id=row["race_id"], umaban=row["umaban"]
+            ).one_or_none()
+            if not exists:
+                result = Result(
+                    race_id=row["race_id"],
+                    rank=row["rank"],
+                    waku=row["waku"],
+                    umaban=row["umaban"],
+                    horse_id=horse_map[row["horse_name"]],
+                    sex_age=row["sex_age"],
+                    jockey_weight=row["jockey_weight"],
+                    jockey_id=jockey_map[row["jockey_name"]],
+                    single_price=row["single_price"],
+                    popular=row["popular"],
+                    horse_weight=row["horse_weight"],
+                )
+                db.session.add(result)
+                saved_results += 1
+
+        if saved_results > 0:
+            print(f"{saved_results}件の新しいレース結果を追加しました。")
+
+        # 最終的な変更をコミット
+        try:
+            db.session.commit()
+            print("データベースへの保存が完了しました。")
+        except Exception as e:
+            db.session.rollback()
+            print(f"レース結果の保存中にエラーが発生: {e}")
+
+
 def main():
     """
-    Webスクレイピング処理のメイン関数
+    スクレイピングとDB保存を実行するメイン関数
     """
     # 2023年の全レースIDを取得
     race_ids = get_all_race_ids_in_year(2023)
 
-    # (デバッグ用) 少数のIDで試す場合は、以下のようにスライスする
-    race_ids = race_ids[:5]  # 5件に減らしてテスト
+    # 動作確認のため、最初の5件に絞る
+    race_ids = race_ids[:5]
 
     all_results = []
+    race_info_list = []
 
     print(f"合計 {len(race_ids)} 件のレース結果をスクレイピングします...")
     # tqdmを使ってプログレスバーを表示
@@ -170,17 +267,23 @@ def main():
             )
             result_df["race_id"] = race_id
             all_results.append(result_df)
+            race_info_list.append(race_info)
 
         # サーバーに負荷をかけないための待機
         time.sleep(1)
 
     # 全てのレース結果を一つのDataFrameに結合
     if all_results:
-        final_df = pd.concat(all_results, ignore_index=True)
-        print("スクレイピングが完了しました。")
+        # DataFrameのリストを一つのDataFrameに結合
+        all_results_df = pd.concat(all_results, ignore_index=True)
+        print("\nスクレイピングが完了しました。")
         print("取得したデータの一部:")
-        print(final_df.head())
-        print("\n全体の件数:", len(final_df))
+        print(all_results_df.head())
+        print(f"\n全体の件数: {len(all_results_df)}")
+
+        # データベースに保存
+        save_results_to_db(race_info_list, all_results_df)
+
     else:
         print("有効なデータは一件も取得できませんでした。")
 
