@@ -4,7 +4,22 @@ import pandas as pd
 from io import StringIO
 import time
 from tqdm import tqdm
+from datetime import datetime
 import re
+
+# 競馬場IDと競馬場名の対応表
+PLACE_MAP = {
+    "01": "札幌",
+    "02": "函館",
+    "03": "福島",
+    "04": "新潟",
+    "05": "東京",
+    "06": "中山",
+    "07": "中京",
+    "08": "京都",
+    "09": "阪神",
+    "10": "小倉",
+}
 
 
 def get_all_race_ids_in_year(year: int) -> list[str]:
@@ -35,9 +50,9 @@ def get_all_race_ids_in_year(year: int) -> list[str]:
     return all_race_ids
 
 
-def scrape_race_result(race_id: str) -> pd.DataFrame:
+def scrape_race_result(race_id: str) -> tuple[dict | None, pd.DataFrame]:
     """
-    指定されたレースIDの結果ページをスクレイピングし、整形されたDataFrameを返す関数
+    指定されたレースIDの結果ページをスクレイピングし、(レース情報, 整形済みDataFrame)を返す関数
     """
     url = f"https://db.netkeiba.com/race/{race_id}/"
     try:
@@ -45,20 +60,49 @@ def scrape_race_result(race_id: str) -> pd.DataFrame:
         response.encoding = response.apparent_encoding
         soup = BeautifulSoup(response.text, "html.parser")
 
+        # --- レース情報の抽出 ---
+        race_info = {"id": race_id}
+
+        # <title>タグからレース名などを抽出
+        title_tag = soup.find("title")
+        if not title_tag:
+            return None, pd.DataFrame()  # titleタグがなければ存在しないページ
+        title_text = title_tag.text
+
+        # 正規表現でレース名を抽出 (例: 'ジャパンカップ' の部分)
+        name_match = re.search(r"(.+?)｜", title_text)
+        if name_match:
+            race_info["name"] = name_match.group(1).strip()
+
+        # 日付の抽出 (例: 2023年11月26日)
+        date_match = re.search(r"(\d{4}年\d{1,2}月\d{1,2}日)", title_text)
+        if date_match:
+            dt = datetime.strptime(date_match.group(1), "%Y年%m月%d日")
+            race_info["date"] = dt.date()
+
+        # race_idから開催地を抽出
+        place_id = race_id[4:6]
+        race_info["venue"] = PLACE_MAP.get(place_id, "不明")
+
+        # --- レース結果テーブルの抽出 ---
         race_table = soup.find("table", class_="race_table_01")
         df = pd.read_html(StringIO(str(race_table)))[0]
 
         cleaned_df = clean_data(df)
-        return cleaned_df
+
+        # 必要な情報が全て揃っているか確認
+        if "name" in race_info and "date" in race_info and "venue" in race_info:
+            return race_info, cleaned_df
+        else:
+            # 情報が不十分な場合は、存在しないレースと見なす
+            return None, pd.DataFrame()
 
     except IndexError:
-        print(
-            f"エラー: レースID {race_id} のテーブルが見つかりませんでした。スキップします。"
-        )
-        return pd.DataFrame()  # 空のDataFrameを返す
+        # テーブルが見つからない場合は、存在しないレースと見なす
+        return None, pd.DataFrame()
     except Exception as e:
         print(f"エラー: レースID {race_id} の処理中に予期せぬエラーが発生しました: {e}")
-        return pd.DataFrame()  # 空のDataFrameを返す
+        return None, pd.DataFrame()
 
 
 def clean_data(df: pd.DataFrame) -> pd.DataFrame:
@@ -110,16 +154,20 @@ def main():
     race_ids = get_all_race_ids_in_year(2023)
 
     # (デバッグ用) 少数のIDで試す場合は、以下のようにスライスする
-    # race_ids = race_ids[:10]
+    race_ids = race_ids[:5]  # 5件に減らしてテスト
 
     all_results = []
 
     print(f"合計 {len(race_ids)} 件のレース結果をスクレイピングします...")
     # tqdmを使ってプログレスバーを表示
     for race_id in tqdm(race_ids):
-        result_df = scrape_race_result(race_id)
+        race_info, result_df = scrape_race_result(race_id)
+
         # 取得したデータにレースIDを列として追加
-        if not result_df.empty:
+        if race_info and not result_df.empty:
+            print(
+                f"\n取得成功: {race_info['name']}, {race_info['date']}, {race_info['venue']}, ({race_id})"
+            )
             result_df["race_id"] = race_id
             all_results.append(result_df)
 
