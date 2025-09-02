@@ -1,6 +1,10 @@
 import pandas as pd
 from sqlalchemy import create_engine
 from app import app, db, Result, Race, Horse, Jockey
+import joblib
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score
 
 
 def load_data():
@@ -36,6 +40,11 @@ def load_data():
         merged_df = merged_df.drop(columns=["id", "race_id", "horse_id", "jockey_id"])
 
         print("データの読み込みと結合が完了しました。")
+
+        # ★★★ 修正点 ★★★
+        # カラム名を一つずつ強制的に文字列に変換する
+        merged_df.columns = [str(col) for col in merged_df.columns]
+
         return merged_df
 
 
@@ -86,6 +95,45 @@ def preprocess_data(df: pd.DataFrame):
     return df_processed
 
 
+def train_and_evaluate_model(df: pd.DataFrame):
+    """
+    データセットを受け取り、モデルの訓練、評価、保存を行う関数
+    """
+    print("\nモデルの訓練と評価を開始します...")
+
+    # 目的変数 (y) と特徴量 (X) に分割
+    X = df.drop("within_3_rank", axis=1)
+    y = df["within_3_rank"]
+
+    # データを訓練用とテスト用に分割 (テストデータ20%, 乱数シード42)
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42
+    )
+
+    # モデルの選択 (ランダムフォレスト)
+    model = RandomForestClassifier(n_estimators=100, random_state=42)
+
+    # モデルの訓練
+    print("モデルを訓練中...")
+    model.fit(X_train, y_train)
+
+    # モデルの評価
+    print("モデルを評価中...")
+    y_pred = model.predict(X_test)
+    accuracy = accuracy_score(y_test, y_pred)
+
+    print("-" * 30)
+    print(f"モデルの正解率 (Accuracy): {accuracy:.4f}")
+    print("-" * 30)
+
+    # 訓練済みモデルの保存
+    model_path = "race_prediction_model.pkl"
+    joblib.dump(model, model_path)
+    print(f"訓練済みモデルを '{model_path}' に保存しました。")
+
+    return model
+
+
 def main():
     """
     モデルの訓練と評価を実行するメイン関数
@@ -100,6 +148,12 @@ def main():
     print(processed_data.head())
     print(f"\n合計データ件数: {len(processed_data)}")
     print(f"カラム一覧: {processed_data.columns.tolist()}")
+
+    # ステップ3: モデルの訓練と評価
+    if not processed_data.empty:
+        train_and_evaluate_model(processed_data)
+    else:
+        print("訓練データがありません。")
 
 
 if __name__ == "__main__":
