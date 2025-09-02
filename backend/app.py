@@ -1,6 +1,9 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
+import os
+import pandas as pd
+import joblib
 
 # Flaskアプリケーションのインスタンスを作成
 app = Flask(__name__)
@@ -89,6 +92,29 @@ class Jockey(db.Model):
         return f"<Jockey {self.name}>"
 
 
+# ============================================
+# AIモデルの読み込み
+# ============================================
+# アプリケーションのルートディレクトリを取得
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_PATH = os.path.join(BASE_DIR, "race_prediction_model.pkl")
+
+# モデルの存在チェック
+if os.path.exists(MODEL_PATH):
+    model = joblib.load(MODEL_PATH)
+    print(f" * AI model loaded from {MODEL_PATH}")
+    # 訓練時に使用した特徴量の順番を定義
+    model_features = ["waku", "umaban", "jockey_weight", "horse_weight", "sex", "age"]
+else:
+    model = None
+    print(f" * Warning: AI model not found at {MODEL_PATH}")
+
+
+# ============================================
+# APIエンドポイント
+# ============================================
+
+
 # http://127.0.0.1:5000/api/hello というURLにアクセスがあったときに実行される関数
 @app.route("/api/hello")
 def hello_world():
@@ -107,6 +133,55 @@ def get_races():
     races_list = [race.to_dict() for race in races]
     # JSON形式でレースリストを返す
     return jsonify(races_list)
+
+
+@app.route("/api/predict", methods=["POST"])
+def predict():
+    """
+    AIモデルを使ってレース結果を予測するAPI
+    """
+    if model is None:
+        return jsonify({"error": "AI model is not loaded."}), 500
+
+    # POSTリクエストからJSONデータを取得
+    json_data = request.get_json()
+    if not json_data:
+        return jsonify({"error": "Invalid input"}), 400
+
+    # リクエストデータから予測用データを抽出
+    horses_data = json_data.get("horses")
+    if not horses_data:
+        return jsonify({"error": "Missing 'horses' data"}), 400
+
+    try:
+        # 受け取ったデータをpandas DataFrameに変換
+        input_df = pd.DataFrame(horses_data)
+
+        # モデルが学習した際の特徴量の順番にカラムを並び替える
+        # これにより、リクエストのJSONの順番が違っても正しく予測できる
+        input_df_reordered = input_df[model_features]
+
+        # 予測の実行（3着以内に入る確率を予測）
+        # predict_probaは [[クラス0の確率, クラス1の確率], ...] という形式で返す
+        probabilities = model.predict_proba(input_df_reordered)[:, 1]
+
+        # 予測結果を整形
+        predictions = []
+        for i, horse in enumerate(horses_data):
+            predictions.append(
+                {
+                    "umaban": horse.get("umaban"),
+                    "probability": round(
+                        probabilities[i] * 100, 2
+                    ),  # %に変換して四捨五入
+                }
+            )
+
+        return jsonify({"predictions": predictions})
+
+    except Exception as e:
+        # エラーハンドリング
+        return jsonify({"error": str(e)}), 500
 
 
 # データベースに初期データを投入するためのカスタムコマンド
