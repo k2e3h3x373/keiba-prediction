@@ -1,6 +1,10 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
+from flask_cors import CORS
+import os
+import pandas as pd
+import joblib
 
 # Flaskアプリケーションのインスタンスを作成
 app = Flask(__name__)
@@ -15,6 +19,9 @@ app.config["SQLALCHEMY_DATABASE_URI"] = (
 # SQLAlchemyがデータベースの変更を追跡する機能を無効にする（パフォーマンス向上のため）
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
+# CORSを有効にする。これにより、異なるオリジン（http://localhost:3000）からのリクエストを受け入れる
+CORS(app)
+
 # SQLAlchemy と Migrate をFlaskアプリケーションに登録
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
@@ -26,12 +33,15 @@ class Race(db.Model):
     __tablename__ = "races"
 
     # カラムの定義
-    id = db.Column(db.Integer, primary_key=True)  # 主キー
+    id = db.Column(db.String(20), primary_key=True)  # 主キー (文字列型に変更)
     name = db.Column(
         db.String(100), nullable=False
     )  # レース名（100文字まで、NULL不可）
     venue = db.Column(db.String(100), nullable=False)  # 開催地（100文字まで、NULL不可）
     date = db.Column(db.Date, nullable=False)  # 開催日（日付型、NULL不可）
+
+    # Raceモデルから関連するResultを簡単に参照できるようにするための設定
+    results = db.relationship("Result", backref="race", lazy=True)
 
     def to_dict(self):
         return {
@@ -43,6 +53,70 @@ class Race(db.Model):
 
     def __repr__(self):
         return f"<Race {self.name}>"
+
+
+class Result(db.Model):
+    __tablename__ = "results"
+    id = db.Column(db.Integer, primary_key=True)
+    rank = db.Column(db.Integer, nullable=False)
+    waku = db.Column(db.Integer, nullable=False)
+    umaban = db.Column(db.Integer, nullable=False)
+    sex_age = db.Column(db.String(10), nullable=False)
+    jockey_weight = db.Column(db.Float, nullable=False)
+    single_price = db.Column(db.Float, nullable=False)
+    popular = db.Column(db.Integer, nullable=False)
+    horse_weight = db.Column(db.Integer, nullable=False)
+
+    # 外部キーの設定
+    race_id = db.Column(db.String(20), db.ForeignKey("races.id"), nullable=False)
+    horse_id = db.Column(db.Integer, db.ForeignKey("horses.id"), nullable=False)
+    jockey_id = db.Column(db.Integer, db.ForeignKey("jockeys.id"), nullable=False)
+
+    def __repr__(self):
+        return f"<Result {self.id}>"
+
+
+class Horse(db.Model):
+    __tablename__ = "horses"
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), unique=True, nullable=False)
+    results = db.relationship("Result", backref="horse", lazy=True)
+
+    def __repr__(self):
+        return f"<Horse {self.name}>"
+
+
+class Jockey(db.Model):
+    __tablename__ = "jockeys"
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), unique=True, nullable=False)
+    results = db.relationship("Result", backref="jockey", lazy=True)
+
+    def __repr__(self):
+        return f"<Jockey {self.name}>"
+
+
+# ============================================
+# AIモデルの読み込み
+# ============================================
+# アプリケーションのルートディレクトリを取得
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_PATH = os.path.join(BASE_DIR, "race_prediction_model.pkl")
+
+# モデルの存在チェック
+if os.path.exists(MODEL_PATH):
+    model = joblib.load(MODEL_PATH)
+    print(f" * AI model loaded from {MODEL_PATH}")
+    # 訓練時に使用した特徴量の順番を定義
+    model_features = ["waku", "umaban", "jockey_weight", "horse_weight", "sex", "age"]
+else:
+    model = None
+    print(f" * Warning: AI model not found at {MODEL_PATH}")
+
+
+# ============================================
+# APIエンドポイント
+# ============================================
 
 
 # http://127.0.0.1:5000/api/hello というURLにアクセスがあったときに実行される関数
@@ -63,6 +137,55 @@ def get_races():
     races_list = [race.to_dict() for race in races]
     # JSON形式でレースリストを返す
     return jsonify(races_list)
+
+
+@app.route("/api/predict", methods=["POST"])
+def predict():
+    """
+    AIモデルを使ってレース結果を予測するAPI
+    """
+    if model is None:
+        return jsonify({"error": "AI model is not loaded."}), 500
+
+    # POSTリクエストからJSONデータを取得
+    json_data = request.get_json()
+    if not json_data:
+        return jsonify({"error": "Invalid input"}), 400
+
+    # リクエストデータから予測用データを抽出
+    horses_data = json_data.get("horses")
+    if not horses_data:
+        return jsonify({"error": "Missing 'horses' data"}), 400
+
+    try:
+        # 受け取ったデータをpandas DataFrameに変換
+        input_df = pd.DataFrame(horses_data)
+
+        # モデルが学習した際の特徴量の順番にカラムを並び替える
+        # これにより、リクエストのJSONの順番が違っても正しく予測できる
+        input_df_reordered = input_df[model_features]
+
+        # 予測の実行（3着以内に入る確率を予測）
+        # predict_probaは [[クラス0の確率, クラス1の確率], ...] という形式で返す
+        probabilities = model.predict_proba(input_df_reordered)[:, 1]
+
+        # 予測結果を整形
+        predictions = []
+        for i, horse in enumerate(horses_data):
+            predictions.append(
+                {
+                    "umaban": horse.get("umaban"),
+                    "probability": round(
+                        probabilities[i] * 100, 2
+                    ),  # %に変換して四捨五入
+                }
+            )
+
+        return jsonify({"predictions": predictions})
+
+    except Exception as e:
+        # エラーハンドリング
+        return jsonify({"error": str(e)}), 500
 
 
 # データベースに初期データを投入するためのカスタムコマンド
