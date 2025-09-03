@@ -1,6 +1,5 @@
 import pandas as pd
-from sqlalchemy import create_engine
-from app import app, db, Result, Race, Horse, Jockey
+from app import app, db
 import joblib
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier

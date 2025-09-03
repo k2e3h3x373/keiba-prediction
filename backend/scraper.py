@@ -56,7 +56,8 @@ def get_all_race_ids_in_year(year: int) -> list[str]:
 
 def scrape_race_result(race_id: str) -> tuple[dict | None, pd.DataFrame]:
     """
-    指定されたレースIDの結果ページをスクレイピングし、(レース情報, 整形済みDataFrame)を返す関数
+    指定されたレースIDの結果ページをスクレイピングし、
+    (レース情報, 整形済みDataFrame)を返す関数
     """
     url = f"https://db.netkeiba.com/race/{race_id}/"
     try:
@@ -189,7 +190,8 @@ def save_results_to_db(races_data: list[dict], results_df: pd.DataFrame):
 
         if new_horses or new_jockeys:
             print(
-                f"新しい馬 {len(new_horses)}頭、新しい騎手 {len(new_jockeys)}名を登録します。"
+                f"新しい馬 {len(new_horses)}頭、"
+                f"新しい騎手 {len(new_jockeys)}名を登録します。"
             )
 
         # --- 3. レース結果を保存 ---
@@ -260,10 +262,11 @@ def main():
     for race_id in tqdm(race_ids):
         race_info, result_df = scrape_race_result(race_id)
 
-        # 取得したデータにレースIDを列として追加
+        # スクレイピングの実行とDBへの保存
         if race_info and not result_df.empty:
             print(
-                f"\n取得成功: {race_info['name']}, {race_info['date']}, {race_info['venue']}, ({race_id})"
+                f"\n取得成功: {race_info['name']}, {race_info['date']}, "
+                f"{race_info['venue']}, ({race_id})"
             )
             result_df["race_id"] = race_id
             all_results.append(result_df)
