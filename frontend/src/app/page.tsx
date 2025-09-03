@@ -96,8 +96,13 @@ export default function Home() {
       }
 
       setPredictions(data.predictions);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      // Use type guarding to safely access the message property
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError("不明なエラーが発生しました。");
+      }
     } finally {
       setIsLoading(false);
     }
