@@ -1,6 +1,7 @@
 from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
+from flask_cors import CORS
 import os
 import pandas as pd
 import joblib
@@ -17,6 +18,9 @@ app.config["SQLALCHEMY_DATABASE_URI"] = (
 )
 # SQLAlchemyがデータベースの変更を追跡する機能を無効にする（パフォーマンス向上のため）
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+# CORSを有効にする。これにより、異なるオリジン（http://localhost:3000）からのリクエストを受け入れる
+CORS(app)
 
 # SQLAlchemy と Migrate をFlaskアプリケーションに登録
 db = SQLAlchemy(app)
