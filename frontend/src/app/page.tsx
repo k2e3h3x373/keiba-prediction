@@ -29,10 +29,10 @@ const createDefaultHorse = (umaban: number): HorseInput => ({
 });
 
 export default function Home() {
-  // State to hold the list of horses to be predicted
-  const [horses, setHorses] = useState<HorseInput[]>([
-    createDefaultHorse(1), // Start with one default horse
-  ]);
+  // State for the URL input
+  const [url, setUrl] = useState("");
+  // State to hold the list of horses to be predicted (manual input)
+  const [horses, setHorses] = useState<HorseInput[]>([createDefaultHorse(1)]);
   // State to hold the prediction results
   const [predictions, setPredictions] = useState<Prediction[]>([]);
   // State for loading status
@@ -69,8 +69,8 @@ export default function Home() {
     setHorses(newHorses);
   };
 
-  // Function to call the prediction API
-  const handlePredict = async () => {
+  // Function to call the prediction API (manual input)
+  const handlePredictManual = async () => {
     setIsLoading(true);
     setError(null);
     setPredictions([]);
@@ -108,6 +108,53 @@ export default function Home() {
     }
   };
 
+  // Function to call the prediction API from URL
+  const handlePredictFromUrl = async () => {
+    if (!url) {
+      setError("URLを入力してください。");
+      return;
+    }
+    setIsLoading(true);
+    setError(null);
+    setPredictions([]);
+
+    try {
+      const response = await fetch(
+        "http://127.0.0.1:5000/api/predict_from_url",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ url }),
+        },
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(
+          errorData.error ||
+            `予測サーバーとの通信に失敗しました (Status: ${response.status})。バックエンドサーバーは起動していますか？`,
+        );
+      }
+
+      const data = await response.json();
+      if (data.error) {
+        throw new Error(`予測エラー: ${data.error}`);
+      }
+
+      setPredictions(data.predictions);
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError("不明なエラーが発生しました。");
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <main className="flex min-h-screen flex-col items-center bg-gray-50 p-12 font-sans">
       <div className="w-full max-w-5xl">
@@ -120,9 +167,31 @@ export default function Home() {
           </p>
         </header>
 
+        {/* =============== URL Prediction Form =============== */}
+        <div className="mb-8 rounded-xl bg-white p-8 shadow-lg">
+          <h2 className="mb-6 text-2xl font-bold text-gray-700">URLから予測</h2>
+          <div className="flex flex-col gap-4 sm:flex-row">
+            <input
+              type="url"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="netkeiba.com の出馬表URLを入力"
+              className="flex-grow rounded-md border border-gray-300 bg-white px-4 py-3 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 focus:outline-none sm:text-sm"
+            />
+            <button
+              onClick={handlePredictFromUrl}
+              disabled={isLoading || !url}
+              className="transform rounded-lg bg-green-600 px-8 py-3 text-lg font-bold text-white shadow-md transition-transform hover:scale-105 hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-gray-400"
+            >
+              {isLoading ? "予測中..." : "URLで予測を実行"}
+            </button>
+          </div>
+        </div>
+
+        {/* =============== Manual Prediction Form =============== */}
         <div className="mb-8 rounded-xl bg-white p-8 shadow-lg">
           <h2 className="mb-6 text-2xl font-bold text-gray-700">
-            予測する馬の情報を入力
+            手動で入力して予測
           </h2>
           <div className="space-y-4">
             {horses.map((horse, index) => (
@@ -193,16 +262,15 @@ export default function Home() {
           >
             馬を追加
           </button>
-        </div>
-
-        <div className="mb-8 text-center">
-          <button
-            onClick={handlePredict}
-            disabled={isLoading || horses.length === 0}
-            className="w-full transform rounded-lg bg-green-600 px-8 py-4 text-xl font-extrabold text-white shadow-lg transition-transform hover:scale-105 hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-gray-400 md:w-1/2"
-          >
-            {isLoading ? "予測中..." : "予測を実行"}
-          </button>
+          <div className="mt-6 text-center">
+            <button
+              onClick={handlePredictManual}
+              disabled={isLoading || horses.length === 0}
+              className="w-full transform rounded-lg bg-indigo-600 px-8 py-4 text-xl font-extrabold text-white shadow-lg transition-transform hover:scale-105 hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-gray-400 md:w-1/2"
+            >
+              {isLoading ? "予測中..." : "手動入力で予測を実行"}
+            </button>
+          </div>
         </div>
 
         {/* Results section */}
