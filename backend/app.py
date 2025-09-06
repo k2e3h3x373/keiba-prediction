@@ -93,6 +93,12 @@ class Jockey(db.Model):
     __tablename__ = "jockeys"
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), unique=True, nullable=False)
+
+    # 騎手の成績を追加
+    win_rate = db.Column(db.Float, nullable=True)  # 勝率
+    place_rate = db.Column(db.Float, nullable=True)  # 連対率
+    show_rate = db.Column(db.Float, nullable=True)  # 複勝率
+
     results = db.relationship("Result", backref="jockey", lazy=True)
 
     def __repr__(self):
