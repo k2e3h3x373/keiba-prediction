@@ -208,36 +208,46 @@ def scrape_jockey_performance(jockey_id: str) -> dict:
     url = f"https://db.netkeiba.com/jockey/{jockey_id}/"
     try:
         response = requests.get(url)
-        response.encoding = response.apparent_encoding
+        # 文字化け対策
+        response.encoding = "EUC-JP"
         soup = BeautifulSoup(response.text, "html.parser")
 
-        # 生涯成績テーブルを取得
-        profile_table = soup.find("table", class_="ResultsByYears")
-        if not profile_table:
+        # 生涯成績テーブルを取得 (クラス名が変更されている)
+        results_table = soup.find("table", class_="ResultsByYears")
+        if not results_table:
             return {}
 
-        # '通算成績' の行を探す
+        # '累計' の行を探す (より堅牢な方法に変更)
         target_tr = None
-        for tr in profile_table.find_all("tr"):
-            th = tr.find("th")
-            if th and "通算成績" in th.text:
+        for tr in results_table.find_all("tr"):
+            if "累計" in tr.text:
                 target_tr = tr
                 break
 
         if not target_tr:
             return {}
 
-        # 勝率、連対率、複勝率を抽出 (tdタグの9, 10, 11番目にある)
+        # 勝率、連対率、複勝率を抽出 (tdタグのインデックスが変更されている)
         tds = target_tr.find_all("td")
         if len(tds) > 11:
-            win_rate = float(tds[9].text.strip())
-            place_rate = float(tds[10].text.strip())
-            show_rate = float(tds[11].text.strip())
-            return {
+            # パーセント記号を除去してfloatに変換
+            win_rate_str = tds[9].text.strip().replace("％", "").replace("%", "")
+            place_rate_str = tds[10].text.strip().replace("％", "").replace("%", "")
+            show_rate_str = tds[11].text.strip().replace("％", "").replace("%", "")
+
+            # データが存在しない場合（'--'など）を考慮
+            win_rate = float(win_rate_str) if win_rate_str not in ["--", ""] else 0.0
+            place_rate = (
+                float(place_rate_str) if place_rate_str not in ["--", ""] else 0.0
+            )
+            show_rate = float(show_rate_str) if show_rate_str not in ["--", ""] else 0.0
+
+            result = {
                 "win_rate": win_rate,
                 "place_rate": place_rate,
                 "show_rate": show_rate,
             }
+            return result
         return {}
 
     except Exception as e:
