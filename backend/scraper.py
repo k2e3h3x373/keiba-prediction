@@ -125,13 +125,17 @@ def scrape_race_result(race_id: str) -> tuple[dict | None, pd.DataFrame]:
                 row["jockey_id"] = None
             row["タイム"] = tds[7].text.strip()
             row["着差"] = tds[8].text.strip()
-            row["単勝"] = tds[10].text.strip()
-            row["人 気"] = tds[11].text.strip()
-            row["馬体重"] = tds[12].text.strip()
-            row["調教師"] = tds[13].text.strip()
+            row["単勝"] = tds[12].text.strip()
+            row["人 気"] = tds[13].text.strip()
+            row["馬体重"] = tds[14].text.strip()
             rows.append(row)
 
         df = pd.DataFrame(rows)
+        # IDが取得できなかった行はこの時点で削除
+        df = df.dropna(subset=["horse_id", "jockey_id"])
+        if df.empty:
+            return None, pd.DataFrame()
+
         cleaned_df = clean_data(df)
 
         # 必要な情報が全て揃っているか確認
@@ -153,11 +157,8 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     """
     スクレイピングで取得したDataFrameを整形する関数
     """
-    # horse_idまたはjockey_idがNoneの行を削除
-    df = df.dropna(subset=["horse_id", "jockey_id"])
-
     # 必要のない列を削除
-    df = df.drop(["着差", "調教師", "タイム"], axis=1, errors="ignore")
+    df = df.drop(["着差", "タイム"], axis=1, errors="ignore")
 
     # 列名をリネーム
     df = df.rename(
@@ -189,13 +190,10 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     df["popular"] = pd.to_numeric(df["popular"], errors="coerce").fillna(0).astype(int)
 
     # 'horse_weight' から体重のみを抽出し、数値に変換
-    # 例: '498(+4)' -> 498
-    # 体重が '--' や '' の場合は 0 にする
+    # 例: '498(+4)' -> 498, '計不' -> 0
+    df["horse_weight"] = df["horse_weight"].str.split("(", expand=True)[0]
     df["horse_weight"] = (
-        df["horse_weight"]
-        .str.split("(", expand=True)[0]
-        .replace(r"\D", "0", regex=True)
-        .astype(int)
+        pd.to_numeric(df["horse_weight"], errors="coerce").fillna(0).astype(int)
     )
 
     return df
