@@ -1,5 +1,4 @@
 from flask import Flask, jsonify, request
-from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_cors import CORS
 import os
@@ -8,6 +7,10 @@ import joblib
 
 # 新しく作成したスクレイパーから関数をインポート
 from race_card_scraper import scrape_race_card, preprocess_for_prediction
+
+# モデル定義を分離した`models.py`からdbオブジェクトと必要なモデルをインポート
+from models import db, Race
+
 
 # Flaskアプリケーションのインスタンスを作成
 app = Flask(__name__)
@@ -26,83 +29,8 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 CORS(app)
 
 # SQLAlchemy と Migrate をFlaskアプリケーションに登録
-db = SQLAlchemy(app)
+db.init_app(app)  # dbオブジェクトをアプリケーションに初期化
 migrate = Migrate(app, db)
-
-
-# データベースのテーブルを定義するクラス（モデル）
-class Race(db.Model):
-    # テーブル名
-    __tablename__ = "races"
-
-    # カラムの定義
-    id = db.Column(db.String(20), primary_key=True)  # 主キー (文字列型に変更)
-    name = db.Column(
-        db.String(100), nullable=False
-    )  # レース名（100文字まで、NULL不可）
-    venue = db.Column(db.String(100), nullable=False)  # 開催地（100文字まで、NULL不可）
-    date = db.Column(db.Date, nullable=False)  # 開催日（日付型、NULL不可）
-
-    # Raceモデルから関連するResultを簡単に参照できるようにするための設定
-    results = db.relationship("Result", backref="race", lazy=True)
-
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "name": self.name,
-            "venue": self.venue,
-            "date": self.date.strftime("%Y-%m-%d"),
-        }
-
-    def __repr__(self):
-        return f"<Race {self.name}>"
-
-
-class Result(db.Model):
-    __tablename__ = "results"
-    id = db.Column(db.Integer, primary_key=True)
-    rank = db.Column(db.Integer, nullable=False)
-    waku = db.Column(db.Integer, nullable=False)
-    umaban = db.Column(db.Integer, nullable=False)
-    sex_age = db.Column(db.String(10), nullable=False)
-    jockey_weight = db.Column(db.Float, nullable=False)
-    single_price = db.Column(db.Float, nullable=False)
-    popular = db.Column(db.Integer, nullable=False)
-    horse_weight = db.Column(db.Integer, nullable=False)
-
-    # 外部キーの設定
-    race_id = db.Column(db.String(20), db.ForeignKey("races.id"), nullable=False)
-    horse_id = db.Column(db.Integer, db.ForeignKey("horses.id"), nullable=False)
-    jockey_id = db.Column(db.Integer, db.ForeignKey("jockeys.id"), nullable=False)
-
-    def __repr__(self):
-        return f"<Result {self.id}>"
-
-
-class Horse(db.Model):
-    __tablename__ = "horses"
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), unique=True, nullable=False)
-    results = db.relationship("Result", backref="horse", lazy=True)
-
-    def __repr__(self):
-        return f"<Horse {self.name}>"
-
-
-class Jockey(db.Model):
-    __tablename__ = "jockeys"
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), unique=True, nullable=False)
-
-    # 騎手の成績を追加
-    win_rate = db.Column(db.Float, nullable=True)  # 勝率
-    place_rate = db.Column(db.Float, nullable=True)  # 連対率
-    show_rate = db.Column(db.Float, nullable=True)  # 複勝率
-
-    results = db.relationship("Result", backref="jockey", lazy=True)
-
-    def __repr__(self):
-        return f"<Jockey {self.name}>"
 
 
 # ============================================
@@ -117,7 +45,17 @@ if os.path.exists(MODEL_PATH):
     model = joblib.load(MODEL_PATH)
     print(f" * AI model loaded from {MODEL_PATH}")
     # 訓練時に使用した特徴量の順番を定義
-    model_features = ["waku", "umaban", "jockey_weight", "horse_weight", "sex", "age"]
+    model_features = [
+        "waku",
+        "umaban",
+        "jockey_weight",
+        "horse_weight",
+        "sex",
+        "age",
+        "win_rate",
+        "place_rate",
+        "show_rate",
+    ]
 else:
     model = None
     print(f" * Warning: AI model not found at {MODEL_PATH}")
@@ -229,8 +167,11 @@ def predict_from_url():
         if input_df.empty:
             return jsonify({"error": "予測可能な馬がいません（データ不足など）。"}), 400
 
+        # モデルが学習した特徴量の順番にカラムを並び替える
+        input_df_reordered = input_df[model_features]
+
         # 3. 予測の実行
-        probabilities = model.predict_proba(input_df)[:, 1]
+        probabilities = model.predict_proba(input_df_reordered)[:, 1]
 
         # 4. 予測結果を整形
         predictions = []

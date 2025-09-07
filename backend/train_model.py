@@ -1,5 +1,5 @@
 import pandas as pd
-from app import app, db
+from app import app, db, model_features
 import joblib
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
@@ -111,6 +111,10 @@ def train_and_evaluate_model(df: pd.DataFrame):
     # 目的変数 (y) と特徴量 (X) に分割
     X = df.drop("within_3_rank", axis=1)
     y = df["within_3_rank"]
+
+    # 特徴量のカラムの順番を、予測時と完全に一致させる
+    print("特徴量のカラムを予測時と一致するように並び替えます...")
+    X = X[model_features]
 
     # データを訓練用とテスト用に分割 (テストデータ20%, 乱数シード42)
     X_train, X_test, y_train, y_test = train_test_split(
