@@ -36,7 +36,9 @@ def load_data():
         merged_df = pd.merge(merged_df, jockeys_df, on="jockey_id")
 
         # 不要になった外部キーカラムと主キーを削除
-        merged_df = merged_df.drop(columns=["id", "race_id", "horse_id", "jockey_id"])
+        merged_df = merged_df.drop(
+            columns=["id", "race_id", "horse_id"]
+        )  # jockey_idは残す
 
         print("データの読み込みと結合が完了しました。")
 
@@ -69,6 +71,11 @@ def preprocess_data(df: pd.DataFrame):
     sex_map = {"牡": 0, "牝": 1, "セ": 2}
     df_processed["sex"] = df_processed["sex"].map(sex_map)
 
+    # 騎手の成績データの欠損値を0で埋める
+    df_processed["win_rate"] = df_processed["win_rate"].fillna(0)
+    df_processed["place_rate"] = df_processed["place_rate"].fillna(0)
+    df_processed["show_rate"] = df_processed["show_rate"].fillna(0)
+
     # 3. 不要な列を削除
     # 目的変数の元になった 'rank'、処理済みの 'sex_age'
     # レース前に分からない情報 (単勝人気など)
@@ -84,6 +91,7 @@ def preprocess_data(df: pd.DataFrame):
             "date",
             "horse_name",
             "jockey_name",
+            "jockey_id",  # jockey_idも不要
         ]
     )
 
