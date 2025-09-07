@@ -389,7 +389,7 @@ def main():
     race_ids = get_all_race_ids_in_year(2023)
 
     # 動作確認のため、最初の5件に絞る
-    race_ids = race_ids[:5]
+    # race_ids = race_ids[:5]
 
     all_results = []
     race_info_list = []
