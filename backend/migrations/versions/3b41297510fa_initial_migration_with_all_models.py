@@ -1,8 +1,8 @@
-"""Initial migration with all models.
+"""Initial migration with all models
 
-Revision ID: 0577641edfbc
+Revision ID: 3b41297510fa
 Revises:
-Create Date: 2025-08-31 11:11:29.592171
+Create Date: 2025-09-06 16:21:34.490799
 
 """
 
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = "0577641edfbc"
+revision = "3b41297510fa"
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -30,6 +30,9 @@ def upgrade():
         "jockeys",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("name", sa.String(length=100), nullable=False),
+        sa.Column("win_rate", sa.Float(), nullable=True),
+        sa.Column("place_rate", sa.Float(), nullable=True),
+        sa.Column("show_rate", sa.Float(), nullable=True),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("name"),
     )

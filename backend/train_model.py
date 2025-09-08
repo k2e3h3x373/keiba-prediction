@@ -1,5 +1,5 @@
 import pandas as pd
-from app import app, db
+from app import app, db, model_features
 import joblib
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
@@ -36,7 +36,9 @@ def load_data():
         merged_df = pd.merge(merged_df, jockeys_df, on="jockey_id")
 
         # 不要になった外部キーカラムと主キーを削除
-        merged_df = merged_df.drop(columns=["id", "race_id", "horse_id", "jockey_id"])
+        merged_df = merged_df.drop(
+            columns=["id", "race_id", "horse_id"]
+        )  # jockey_idは残す
 
         print("データの読み込みと結合が完了しました。")
 
@@ -69,6 +71,11 @@ def preprocess_data(df: pd.DataFrame):
     sex_map = {"牡": 0, "牝": 1, "セ": 2}
     df_processed["sex"] = df_processed["sex"].map(sex_map)
 
+    # 騎手の成績データの欠損値を0で埋める
+    df_processed["win_rate"] = df_processed["win_rate"].fillna(0)
+    df_processed["place_rate"] = df_processed["place_rate"].fillna(0)
+    df_processed["show_rate"] = df_processed["show_rate"].fillna(0)
+
     # 3. 不要な列を削除
     # 目的変数の元になった 'rank'、処理済みの 'sex_age'
     # レース前に分からない情報 (単勝人気など)
@@ -84,6 +91,7 @@ def preprocess_data(df: pd.DataFrame):
             "date",
             "horse_name",
             "jockey_name",
+            "jockey_id",  # jockey_idも不要
         ]
     )
 
@@ -103,6 +111,10 @@ def train_and_evaluate_model(df: pd.DataFrame):
     # 目的変数 (y) と特徴量 (X) に分割
     X = df.drop("within_3_rank", axis=1)
     y = df["within_3_rank"]
+
+    # 特徴量のカラムの順番を、予測時と完全に一致させる
+    print("特徴量のカラムを予測時と一致するように並び替えます...")
+    X = X[model_features]
 
     # データを訓練用とテスト用に分割 (テストデータ20%, 乱数シード42)
     X_train, X_test, y_train, y_test = train_test_split(

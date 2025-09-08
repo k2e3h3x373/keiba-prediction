@@ -1,7 +1,6 @@
 import requests
 from bs4 import BeautifulSoup
 import pandas as pd
-from io import StringIO
 import time
 from tqdm import tqdm
 from datetime import datetime
@@ -90,8 +89,51 @@ def scrape_race_result(race_id: str) -> tuple[dict | None, pd.DataFrame]:
         race_info["venue"] = PLACE_MAP.get(place_id, "不明")
 
         # --- レース結果テーブルの抽出 ---
+        # 騎手IDと馬IDを抽出するために、HTMLを直接解析する方法に変更
         race_table = soup.find("table", class_="race_table_01")
-        df = pd.read_html(StringIO(str(race_table)))[0]
+        if not race_table:
+            return None, pd.DataFrame()
+
+        rows = []
+        for tr in race_table.find_all("tr")[1:]:  # ヘッダー行をスキップ
+            row = {}
+            tds = tr.find_all("td")
+            if len(tds) < 13:
+                continue
+
+            row["着 順"] = tds[0].text.strip()
+            row["枠 番"] = tds[1].text.strip()
+            row["馬 番"] = tds[2].text.strip()
+            row["馬名"] = tds[3].text.strip()
+            # 馬IDの抽出
+            horse_link = tds[3].find("a")
+            if horse_link:
+                match = re.search(r"/horse/(\d+)", horse_link["href"])
+                row["horse_id"] = match.group(1) if match else None
+            else:
+                row["horse_id"] = None
+            row["性齢"] = tds[4].text.strip()
+            row["斤量"] = tds[5].text.strip()
+            row["騎手"] = tds[6].text.strip()
+            # 騎手IDの抽出
+            jockey_link = tds[6].find("a")
+            if jockey_link:
+                match = re.search(r"/jockey/result/recent/(\d+)", jockey_link["href"])
+                row["jockey_id"] = match.group(1) if match else None
+            else:
+                row["jockey_id"] = None
+            row["タイム"] = tds[7].text.strip()
+            row["着差"] = tds[8].text.strip()
+            row["単勝"] = tds[12].text.strip()
+            row["人 気"] = tds[13].text.strip()
+            row["馬体重"] = tds[14].text.strip()
+            rows.append(row)
+
+        df = pd.DataFrame(rows)
+        # IDが取得できなかった行はこの時点で削除
+        df = df.dropna(subset=["horse_id", "jockey_id"])
+        if df.empty:
+            return None, pd.DataFrame()
 
         cleaned_df = clean_data(df)
 
@@ -115,7 +157,7 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     スクレイピングで取得したDataFrameを整形する関数
     """
     # 必要のない列を削除
-    df = df.drop(["着差", "調教師", "タイム"], axis=1)
+    df = df.drop(["着差", "タイム"], axis=1, errors="ignore")
 
     # 列名をリネーム
     df = df.rename(
@@ -135,20 +177,79 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
 
     # 'rank' 列が数値でない行を削除 (例: '除外', '中止' など)
     df = df[pd.to_numeric(df["rank"], errors="coerce").notna()]
+    if df.empty:
+        return df
 
     # データ型を変換
     df["rank"] = df["rank"].astype(int)
     df["waku"] = df["waku"].astype(int)
     df["umaban"] = df["umaban"].astype(int)
     df["jockey_weight"] = df["jockey_weight"].astype(float)
-    df["single_price"] = df["single_price"].astype(float)
-    df["popular"] = df["popular"].astype(int)
+    df["single_price"] = pd.to_numeric(df["single_price"], errors="coerce").fillna(0.0)
+    df["popular"] = pd.to_numeric(df["popular"], errors="coerce").fillna(0).astype(int)
 
     # 'horse_weight' から体重のみを抽出し、数値に変換
-    # 例: '498(+4)' -> 498
-    df["horse_weight"] = df["horse_weight"].str.split("(", expand=True)[0].astype(int)
+    # 例: '498(+4)' -> 498, '計不' -> 0
+    df["horse_weight"] = df["horse_weight"].str.split("(", expand=True)[0]
+    df["horse_weight"] = (
+        pd.to_numeric(df["horse_weight"], errors="coerce").fillna(0).astype(int)
+    )
 
     return df
+
+
+def scrape_jockey_performance(jockey_id: str) -> dict:
+    """
+    騎手IDを指定して、その騎手の生涯成績（勝率、連対率、複勝率）を取得する関数
+    """
+    url = f"https://db.netkeiba.com/jockey/{jockey_id}/"
+    try:
+        response = requests.get(url)
+        # 文字化け対策
+        response.encoding = "EUC-JP"
+        soup = BeautifulSoup(response.text, "html.parser")
+
+        # 生涯成績テーブルを取得 (クラス名が変更されている)
+        results_table = soup.find("table", class_="ResultsByYears")
+        if not results_table:
+            return {}
+
+        # '累計' の行を探す (より堅牢な方法に変更)
+        target_tr = None
+        for tr in results_table.find_all("tr"):
+            if "累計" in tr.text:
+                target_tr = tr
+                break
+
+        if not target_tr:
+            return {}
+
+        # 勝率、連対率、複勝率を抽出 (tdタグのインデックスが変更されている)
+        tds = target_tr.find_all("td")
+        if len(tds) > 11:
+            # パーセント記号を除去してfloatに変換
+            win_rate_str = tds[9].text.strip().replace("％", "").replace("%", "")
+            place_rate_str = tds[10].text.strip().replace("％", "").replace("%", "")
+            show_rate_str = tds[11].text.strip().replace("％", "").replace("%", "")
+
+            # データが存在しない場合（'--'など）を考慮
+            win_rate = float(win_rate_str) if win_rate_str not in ["--", ""] else 0.0
+            place_rate = (
+                float(place_rate_str) if place_rate_str not in ["--", ""] else 0.0
+            )
+            show_rate = float(show_rate_str) if show_rate_str not in ["--", ""] else 0.0
+
+            result = {
+                "win_rate": win_rate,
+                "place_rate": place_rate,
+                "show_rate": show_rate,
+            }
+            return result
+        return {}
+
+    except Exception as e:
+        print(f"エラー: 騎手ID {jockey_id} の成績取得中にエラー: {e}")
+        return {}
 
 
 def save_results_to_db(races_data: list[dict], results_df: pd.DataFrame):
@@ -172,27 +273,55 @@ def save_results_to_db(races_data: list[dict], results_df: pd.DataFrame):
 
         # --- 2. 馬と騎手の情報を先にまとめて登録 ---
         # 効率化のため、先にDBに存在する馬・騎手をすべて取得
-        existing_horses = {h.name for h in Horse.query.all()}
-        existing_jockeys = {j.name for j in Jockey.query.all()}
+        existing_horses = {h.id: h for h in Horse.query.all()}
+        existing_jockeys = {j.id: j for j in Jockey.query.all()}
+        existing_horse_names = {h.name for h in existing_horses.values()}
 
-        # スクレイピング結果からユニークな馬名・騎手名を取得
-        unique_horses = set(results_df["horse_name"].unique())
-        unique_jockeys = set(results_df["jockey_name"].unique())
+        # スクレイピング結果からユニークな馬・騎手情報を取得 (IDと名前のタプル)
+        unique_horses_scraped = set(
+            zip(results_df["horse_id"], results_df["horse_name"])
+        )
+        unique_jockeys_scraped = set(
+            zip(results_df["jockey_id"], results_df["jockey_name"])
+        )
 
-        # DBに存在しない新しい馬・騎手だけをセッションに追加
-        new_horses = unique_horses - existing_horses
-        new_jockeys = unique_jockeys - existing_jockeys
+        # DBに存在しない新しい馬・騎手だけを抽出
+        new_horses_to_add = {
+            (id, name)
+            for id, name in unique_horses_scraped
+            if int(id) not in existing_horses and name not in existing_horse_names
+        }
+        new_jockeys_to_add = {
+            (id, name)
+            for id, name in unique_jockeys_scraped
+            if int(id) not in existing_jockeys
+        }
 
-        for name in new_horses:
-            db.session.add(Horse(name=name))
-        for name in new_jockeys:
-            db.session.add(Jockey(name=name))
+        jockey_performance_cache = {}  # 騎手成績の一時キャッシュ
 
-        if new_horses or new_jockeys:
-            print(
-                f"新しい馬 {len(new_horses)}頭、"
-                f"新しい騎手 {len(new_jockeys)}名を登録します。"
-            )
+        if new_horses_to_add:
+            print(f"新しい馬 {len(new_horses_to_add)}頭を登録します。")
+            for horse_id, horse_name in new_horses_to_add:
+                db.session.add(Horse(id=int(horse_id), name=horse_name))
+
+        if new_jockeys_to_add:
+            print(f"新しい騎手 {len(new_jockeys_to_add)}名の情報を取得・登録します。")
+            for jockey_id, jockey_name in tqdm(
+                new_jockeys_to_add, desc="騎手情報取得中"
+            ):
+                # 成績をスクレイピング
+                performance = scrape_jockey_performance(jockey_id)
+                jockey_performance_cache[jockey_id] = performance  # キャッシュに保存
+                db.session.add(
+                    Jockey(
+                        id=int(jockey_id),
+                        name=jockey_name,
+                        win_rate=performance.get("win_rate"),
+                        place_rate=performance.get("place_rate"),
+                        show_rate=performance.get("show_rate"),
+                    )
+                )
+                time.sleep(1)  # サーバー負荷軽減
 
         # --- 3. レース結果を保存 ---
         # 一度コミットして、新しい馬・騎手のIDを確定させる
@@ -203,14 +332,21 @@ def save_results_to_db(races_data: list[dict], results_df: pd.DataFrame):
             print(f"レース・馬・騎手の保存中にエラーが発生: {e}")
             return
 
-        # IDを効率的に引けるように、馬名/騎手名をキーにした辞書を作成
-        horse_map = {h.name: h.id for h in Horse.query.all()}
-        jockey_map = {j.name: j.id for j in Jockey.query.all()}
+        # IDを効率的に引けるように、馬ID/騎手IDをキーにした辞書を作成
+        horse_map = {h.id for h in Horse.query.all()}
+        jockey_map = {j.id for j in Jockey.query.all()}
 
         saved_results = 0
         for _, row in tqdm(
             results_df.iterrows(), total=len(results_df), desc="レース結果をDBに保存中"
         ):
+            # 外部キー制約を満たすかチェック
+            if (
+                int(row["horse_id"]) not in horse_map
+                or int(row["jockey_id"]) not in jockey_map
+            ):
+                continue
+
             # 既に同じレースの同じ馬番の結果が存在しないか確認
             exists = Result.query.filter_by(
                 race_id=row["race_id"], umaban=row["umaban"]
@@ -221,10 +357,10 @@ def save_results_to_db(races_data: list[dict], results_df: pd.DataFrame):
                     rank=row["rank"],
                     waku=row["waku"],
                     umaban=row["umaban"],
-                    horse_id=horse_map[row["horse_name"]],
+                    horse_id=int(row["horse_id"]),
                     sex_age=row["sex_age"],
                     jockey_weight=row["jockey_weight"],
-                    jockey_id=jockey_map[row["jockey_name"]],
+                    jockey_id=int(row["jockey_id"]),
                     single_price=row["single_price"],
                     popular=row["popular"],
                     horse_weight=row["horse_weight"],
@@ -252,7 +388,7 @@ def main():
     race_ids = get_all_race_ids_in_year(2023)
 
     # 動作確認のため、最初の5件に絞る
-    race_ids = race_ids[:5]
+    # race_ids = race_ids[:5]
 
     all_results = []
     race_info_list = []
